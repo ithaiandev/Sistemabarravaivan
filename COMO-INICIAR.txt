@@ -1,0 +1,30 @@
+BARRACA DO IVAN - VERSAO 2
+
+A versao anterior esta guardada na pasta "backup-versao-anterior".
+Para voltar a ela, copie os arquivos dessa pasta de volta para ca.
+
+PASSO 1 - BANCO DE DADOS (uma vez so)
+  Abra o Supabase > SQL Editor e execute, nesta ordem:
+  a) contagem-pratos.sql      -> OBRIGATORIO para a nova aba "Contagem de pratos"
+  b) tempo-real.sql           -> recomendado: celular e computador atualizam na hora
+                                 (aparece "Ao vivo" em verde no topo da tela)
+                                 Se ja executou uma versao antiga dele, execute de novo.
+  c) reforco-seguranca-v2.sql -> recomendado (regras extras de seguranca)
+  Nenhum deles apaga registros.
+  Os scripts antigos (database-original, upgrade, folha, cardapio, impostos,
+  correcoes-seguranca) NAO precisam ser executados de novo.
+
+PASSO 2 - SUPABASE (recomendado)
+  Authentication > Sign In / Providers > desative "Allow new users to sign up".
+  Sem isso, qualquer pessoa que tenha o link pode criar uma conta propria
+  (ela nao ve seus dados, mas usa o seu banco).
+
+PASSO 3 - ABRIR O SISTEMA
+  Abra esta pasta no VS Code e rode o index.html pelo Live Server.
+  Atualize o navegador com Ctrl+Shift+R.
+  Observacao: por seguranca a pagina bloqueia scripts de fora, entao o
+  recarregamento automatico do Live Server nao funciona. Aperte F5 depois de
+  alterar arquivos.
+
+SE ALGO DER ERRADO
+  Aperte F12 > Console e envie a mensagem de erro.

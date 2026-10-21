@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; base-uri 'self'; form-action 'self'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0f3b3f">
+<title>Barraca do Ivan | Gestão</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b7a6f'/%3E%3Ctext x='16' y='21' font-family='Arial' font-size='13' font-weight='700' fill='white' text-anchor='middle'%3EBI%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script defer src="config.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+
+<div id="boot" class="boot"><span class="spinner"></span>Carregando…</div>
+
+<!-- ============ LOGIN ============ -->
+<section id="auth" class="auth hidden">
+  <form id="loginForm" class="auth-card" novalidate>
+    <span class="brand-mark lg">BI</span>
+    <h1>Barraca do Ivan</h1>
+    <p class="muted">Gestão de vendas, custos e lucro</p>
+    <label>E-mail<input id="email" type="email" autocomplete="username" required></label>
+    <label>Senha<input id="password" type="password" autocomplete="current-password" required></label>
+    <button type="submit" id="loginBtn" class="btn btn-primary btn-block">Entrar</button>
+    <p id="loginmsg" class="form-msg" role="alert"></p>
+  </form>
+</section>
+
+<!-- ============ APLICATIVO ============ -->
+<div id="app" class="app hidden">
+  <aside class="sidebar">
+    <div class="side-brand"><span class="brand-mark">BI</span><div><strong>Barraca do Ivan</strong><small>Gestão Pro</small></div></div>
+    <nav id="nav" aria-label="Seções">
+      <button type="button" data-tab="dashboard"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>Visão geral</span></button>
+      <button type="button" data-tab="vendas"><svg viewBox="0 0 24 24"><path d="M3 4h2.5l2.3 10.5h10.4L20.5 7H6.6"/><circle cx="9.5" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg><span>Anotar vendas</span></button>
+      <button type="button" data-tab="contagem"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9zM9 11h6M9 15h4"/></svg><span>Contagem de pratos</span></button>
+      <button type="button" data-tab="produtos"><svg viewBox="0 0 24 24"><path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 0-3 2.5-3 6v4h3v8"/></svg><span>Cardápio e custos</span></button>
+      <button type="button" data-tab="movimentos"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h2M7 3h10"/></svg><span>Despesas e entradas</span></button>
+      <button type="button" data-tab="funcionarios"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.5 3.5 5.2"/></svg><span>Funcionários</span></button>
+      <button type="button" data-tab="impostos"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 17l6-6M9.5 11.5h.01M14.5 16.5h.01"/></svg><span>Impostos</span></button>
+      <button type="button" data-tab="relatorios"><svg viewBox="0 0 24 24"><path d="M5 20V11M11 20V5M17 20v-7M2 20h20"/></svg><span>Relatórios</span></button>
+    </nav>
+    <div class="side-foot">
+      <small id="userEmail" class="user-email"></small>
+      <button type="button" id="logoutBtn" class="btn btn-ghost btn-sm">Sair</button>
+    </div>
+  </aside>
+
+  <div class="content">
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1 id="pageTitle">Visão geral</h1>
+        <p id="pageSub" class="muted"></p>
+      </div>
+      <div class="top-actions">
+        <label class="inline">Mês<input type="month" id="periodo"></label>
+        <button type="button" id="refreshBtn" class="btn btn-soft" title="Buscar dados novamente">Atualizar</button>
+        <span id="liveInfo" class="live">Sem tempo real</span>
+        <span id="syncInfo" class="sync muted"></span>
+      </div>
+    </header>
+
+    <main>
+      <!-- ===== VISÃO GERAL ===== -->
+      <section id="page-dashboard" class="page">
+        <div id="alertas" class="alerts"></div>
+
+        <h2 class="section-title">Hoje <span id="hojeLabel" class="muted"></span></h2>
+        <div class="kpis" id="kpiHoje"></div>
+
+        <h2 class="section-title">Esta semana <span class="muted">segunda a domingo</span></h2>
+        <div class="kpis" id="kpiSemana"></div>
+
+        <h2 class="section-title">Mês selecionado <span id="mesLabel" class="muted"></span></h2>
+        <div class="kpis" id="kpiMes"></div>
+
+        <div class="grid-2">
+          <div class="card"><div class="card-head"><h3>Faturamento por dia</h3></div><div id="chartDias"></div></div>
+          <div class="card"><div class="card-head"><h3>Formas de pagamento</h3></div><div id="chartPagamentos"></div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Últimas vendas</h3><button type="button" data-goto="vendas" class="btn btn-soft btn-sm">Ver todas</button></div>
+          <div class="table-wrap" id="ultimasVendas"></div>
+        </div>
+
+        <details class="card help">
+          <summary>Como os números são calculados</summary>
+          <ul>
+            <li><b>Lucro bruto</b> = faturamento das vendas − custo cadastrado dos produtos vendidos.</li>
+            <li><b>Resultado estimado</b> = lucro bruto + entradas manuais − despesas (exceto <i>Compras</i>) − pagamentos a funcionários. As compras ficam de fora porque o custo delas já entra pelo custo de cada produto vendido.</li>
+            <li><b>Saldo de caixa</b> = tudo que entrou − tudo que saiu, incluindo compras. Use este número se você não cadastra o custo dos produtos.</li>
+            <li>Não registre uma venda também como entrada manual, nem um pagamento de funcionário ou imposto também em Despesas: isso duplica valores.</li>
+            <li>A <b>Contagem de pratos</b> não entra em nenhum valor financeiro. Ela serve só para acompanhar o que mais sai.</li>
+          </ul>
+        </details>
+      </section>
+
+      <!-- ===== VENDAS ===== -->
+      <section id="page-vendas" class="page hidden">
+        <div class="card">
+          <div class="card-head"><h3>Registrar venda</h3></div>
+          <form id="formVenda" class="form-grid">
+            <label class="span-2">Produto<select id="produtoVenda" name="produto" required></select></label>
+            <label>Quantidade<input name="quantidade" type="number" step="0.001" min="0.001" max="100000" required value="1" inputmode="decimal"></label>
+            <label>Pagamento<select name="pagamento"><option>Pix</option><option>Dinheiro</option><option>Cartão</option><option>Outro</option></select></label>
+            <label>Data<input name="data" type="date" required data-default="today"></label>
+            <div class="form-actions"><div id="previewVenda" class="preview"></div><button type="submit" class="btn btn-primary">Registrar venda</button></div>
+          </form>
+          <p class="muted small">Só aparecem produtos ativos. Itens com controle de estoque têm baixa automática e somem da lista quando o estoque acaba.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Vendas de um dia</h3>
+            <div class="filters">
+              <label class="inline">Dia<input id="filtroDia" type="date" data-default="today"></label>
+              <label class="inline">Categoria<select id="filtroCategoria"><option value="">Todas</option></select></label>
+            </div>
+          </div>
+          <div class="kpis kpis-sm" id="kpiDia"></div>
+          <div class="table-wrap" id="relatorioDia"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Histórico do mês</h3>
+            <div class="filters">
+              <input id="buscaVenda" type="search" placeholder="Buscar produto…" aria-label="Buscar produto">
+              <select id="filtroPagamento" aria-label="Filtrar por pagamento"><option value="">Todos os pagamentos</option><option>Pix</option><option>Dinheiro</option><option>Cartão</option><option>Outro</option></select>
+            </div>
+          </div>
+          <div class="table-wrap" id="listaVendas"></div>
+        </div>
+      </section>
+
+      <!-- ===== CONTAGEM DE PRATOS ===== -->
+      <section id="page-contagem" class="page hidden">
+        <div id="contagemSetup" class="card notice hidden">
+          <h3>Ative a contagem de pratos</h3>
+          <p>Esta seção precisa de duas tabelas novas no banco. Abra o Supabase → <b>SQL Editor</b>, cole o conteúdo do arquivo <code>contagem-pratos.sql</code> desta pasta e clique em <b>Run</b>. Depois clique em <b>Atualizar</b> aqui em cima.</p>
+          <p class="muted small">O script só cria tabelas novas: nenhum dado existente é alterado.</p>
+        </div>
+
+        <div id="contagemBody">
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h3>Contar pratos vendidos</h3>
+                <p class="muted small">Toque em <b>+</b> a cada prato que sair e depois em <b>Salvar contagem</b>. Não usa valores: serve só para ver o que mais vende.</p>
+              </div>
+              <label class="inline">Dia<input type="date" id="contagemData" data-default="today"></label>
+            </div>
+            <div id="contadorGrid"></div>
+            <div class="counter-bar">
+              <span id="contagemPendente">Nada para salvar.</span>
+              <div class="btn-row">
+                <button type="button" id="zerarContagem" class="btn btn-ghost">Zerar</button>
+                <button type="button" id="salvarContagem" class="btn btn-primary">Salvar contagem</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-head"><h3>Registrado no dia</h3></div>
+              <div class="kpis kpis-sm" id="kpiContagemDia"></div>
+              <div class="table-wrap" id="listaContagemDia"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Últimos 7 dias</h3></div>
+              <div class="table-wrap" id="contagem7dias"></div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="card"><div class="card-head"><h3>Ranking do mês</h3></div><div id="rankingPratos"></div></div>
+            <div class="card"><div class="card-head"><h3>Movimento por dia da semana</h3></div><div id="chartSemanaPratos"></div></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h3>Pratos para contagem</h3></div>
+            <form id="formPrato" class="form-grid">
+              <label class="span-2">Nome do prato<input name="nome" required maxlength="120" placeholder="Ex.: Peixe frito com fritas"></label>
+              <label>Categoria<input name="categoria" list="categoriasPratos" maxlength="60" value="Pratos" required></label>
+              <div class="form-actions"><button type="submit" class="btn btn-primary">Adicionar prato</button></div>
+            </form>
+            <datalist id="categoriasPratos"><option>Pratos</option><option>Porções</option><option>Petiscos</option><option>Bebidas</option><option>Sobremesas</option></datalist>
+            <div class="table-wrap" id="listaPratos"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== CARDÁPIO ===== -->
+      <section id="page-produtos" class="page hidden">
+        <div class="card">
+          <div class="card-head"><h3>Cadastrar produto</h3></div>
+          <form id="formProduto" class="form-grid">
+            <label class="span-2">Produto<input name="nome" required maxlength="160" placeholder="Ex.: Cerveja lata"></label>
+            <label>Categoria<select name="categoria"><option>Pratos</option><option>Porções</option><option>Bebidas</option><option>Sobremesas</option><option>Outros</option></select></label>
+            <label>Custo unitário (R$)<input name="custo" type="number" step="0.01" min="0" required inputmode="decimal"></label>
+            <label>Preço de venda (R$)<input name="preco" type="number" step="0.01" min="0" required inputmode="decimal"></label>
+            <label>Controlar estoque?<select name="controla_estoque" id="produtoControla"><option value="nao">Não (pratos e porções)</option><option value="sim">Sim (bebidas e embalados)</option></select></label>
+            <label id="produtoEstoqueWrap" class="hidden">Estoque inicial (un.)<input name="estoque" type="number" step="0.001" min="0" value="0" inputmode="decimal"></label>
+            <div class="form-actions"><div id="previewProduto" class="preview"></div><button type="submit" class="btn btn-primary">Cadastrar produto</button></div>
+          </form>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Catálogo e margem por produto</h3><div class="filters"><input id="buscaProduto" type="search" placeholder="Buscar produto…" aria-label="Buscar produto"></div></div>
+          <div class="table-wrap" id="listaProdutos"></div>
+        </div>
+      </section>
+
+      <!-- ===== DESPESAS E ENTRADAS ===== -->
+      <section id="page-movimentos" class="page hidden">
+        <div class="card">
+          <div class="card-head"><h3>Novo lançamento</h3></div>
+          <form id="formMov" class="form-grid">
+            <label class="span-2">Descrição<input name="descricao" maxlength="160" required placeholder="Ex.: Gelo, gás, conta de luz"></label>
+            <label>Tipo<select name="tipo" id="movTipo"><option value="saida">Despesa / saída</option><option value="entrada">Entrada manual</option></select></label>
+            <label>Categoria<select name="categoria" id="movCategoria"></select></label>
+            <label>Valor (R$)<input name="valor" type="number" step="0.01" min="0.01" required inputmode="decimal"></label>
+            <label>Data<input name="data" type="date" required data-default="today"></label>
+            <div class="form-actions"><button type="submit" class="btn btn-primary">Salvar lançamento</button></div>
+          </form>
+          <p class="muted small">Pagamentos de funcionários e impostos têm abas próprias e já entram nas despesas: não lance de novo aqui.</p>
+        </div>
+        <div class="kpis" id="kpiMov"></div>
+        <div class="card">
+          <div class="card-head"><h3>Lançamentos do mês</h3><div class="filters"><select id="filtroMovTipo" aria-label="Filtrar tipo"><option value="">Todos</option><option value="saida">Saídas</option><option value="entrada">Entradas</option></select></div></div>
+          <div class="table-wrap" id="listaMov"></div>
+        </div>
+      </section>
+
+      <!-- ===== FUNCIONÁRIOS ===== -->
+      <section id="page-funcionarios" class="page hidden">
+        <div class="kpis" id="kpiFunc"></div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>Registrar pagamento</h3></div>
+            <form id="formPagamento" class="form-grid">
+              <label class="span-2">Funcionário<select name="funcionario_id" id="funcPagamento" required></select></label>
+              <label>Tipo<select name="tipo" id="tipoPagamento"><option value="diaria">Diária</option><option value="mensal">Mensal</option><option value="extra">Extra / adiantamento</option></select></label>
+              <label>Valor pago (R$)<input name="valor" id="valorPagamento" type="number" min="0.01" step="0.01" required inputmode="decimal"></label>
+              <label>Data<input name="data" type="date" required data-default="today"></label>
+              <label>Observação<input name="observacao" maxlength="160" placeholder="Opcional"></label>
+              <div class="form-actions"><button type="submit" class="btn btn-primary">Registrar pagamento</button></div>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Cadastrar funcionário</h3></div>
+            <form id="formFunc" class="form-grid">
+              <label class="span-2">Nome<input name="nome" maxlength="160" required></label>
+              <label>Cargo<input name="cargo" maxlength="100" required></label>
+              <label>Admissão<input name="admissao" type="date" required data-default="today"></label>
+              <label>Valor diário (R$)<input name="valor_diario" type="number" min="0" step="0.01" value="0" required inputmode="decimal"></label>
+              <label>Salário mensal (R$)<input name="salario" type="number" min="0" step="0.01" value="0" required inputmode="decimal"></label>
+              <div class="form-actions"><button type="submit" class="btn btn-primary">Cadastrar</button></div>
+            </form>
+            <p class="muted small">Diária e salário são só referência e preenchem o valor do pagamento. Apenas pagamentos registrados entram nos gastos.</p>
+          </div>
+        </div>
+        <div class="card"><div class="card-head"><h3>Equipe</h3></div><div class="table-wrap" id="listaFunc"></div></div>
+        <div class="card"><div class="card-head"><h3>Pagamentos do mês</h3></div><div class="table-wrap" id="listaPagamentos"></div></div>
+      </section>
+
+      <!-- ===== IMPOSTOS ===== -->
+      <section id="page-impostos" class="page hidden">
+        <div class="kpis" id="kpiImp"></div>
+        <div class="card">
+          <div class="card-head"><h3>Anotar obrigação</h3></div>
+          <form id="formImposto" class="form-grid">
+            <label class="span-2">Descrição<input name="descricao" required maxlength="160" placeholder="Ex.: DAS Simples Nacional"></label>
+            <label>Competência<input type="month" name="competencia" required data-default="month"></label>
+            <label>Vencimento<input type="date" name="vencimento" required data-default="today"></label>
+            <label>Valor previsto (R$)<input type="number" name="valor" min="0.01" step="0.01" required inputmode="decimal"></label>
+            <div class="form-actions"><button type="submit" class="btn btn-primary">Anotar imposto</button></div>
+          </form>
+          <p class="muted small">Anote os valores informados pelo seu contador. O sistema não calcula impostos. Ao marcar como pago, o valor entra automaticamente nas saídas.</p>
+        </div>
+        <div class="card"><div class="card-head"><h3>Obrigações</h3></div><div class="table-wrap" id="listaImpostos"></div></div>
+      </section>
+
+      <!-- ===== RELATÓRIOS ===== -->
+      <section id="page-relatorios" class="page hidden">
+        <div class="card">
+          <div class="card-head"><h3>Evolução dos últimos 6 meses</h3></div>
+          <div id="chartEvolucao"></div>
+          <div class="table-wrap" id="tabelaEvolucao"></div>
+        </div>
+        <div class="grid-2">
+          <div class="card"><div class="card-head"><h3>Despesas por categoria</h3></div><div id="categorias"></div></div>
+          <div class="card"><div class="card-head"><h3>Faturamento por categoria</h3></div><div id="fatCategorias"></div></div>
+        </div>
+        <div class="card"><div class="card-head"><h3>Produtos mais vendidos no mês</h3></div><div class="table-wrap" id="maisVendidos"></div></div>
+        <div class="card">
+          <div class="card-head"><h3>Exportar planilhas (CSV)</h3><label class="check"><input type="checkbox" id="csvSoMes" checked> Somente o mês selecionado</label></div>
+          <div class="btn-row wrap">
+            <button type="button" class="btn btn-soft" data-csv="vendas">Vendas</button>
+            <button type="button" class="btn btn-soft" data-csv="movimentos">Lançamentos</button>
+            <button type="button" class="btn btn-soft" data-csv="pagamentos">Pagamentos de funcionários</button>
+            <button type="button" class="btn btn-soft" data-csv="impostos">Impostos</button>
+            <button type="button" class="btn btn-soft" data-csv="contagens">Contagem de pratos</button>
+            <button type="button" class="btn btn-soft" data-csv="produtos">Produtos</button>
+          </div>
+          <p class="muted small">Os arquivos abrem direto no Excel ou no Google Planilhas, com vírgula decimal.</p>
+        </div>
+      </section>
+    </main>
+    <footer>© 2026 Barraca do Ivan — Sistema de Gestão</footer>
+  </div>
+</div>
+
+<!-- Janela de diálogo reutilizável (confirmações e edições) -->
+<dialog id="dlg" aria-labelledby="dlgTitle">
+  <form id="dlgForm" novalidate>
+    <h3 id="dlgTitle"></h3>
+    <p id="dlgMsg" class="muted"></p>
+    <div id="dlgFields" class="dlg-fields"></div>
+    <div class="dlg-actions">
+      <button type="button" id="dlgCancel" class="btn btn-ghost">Cancelar</button>
+      <button type="submit" id="dlgOk" class="btn btn-primary">Confirmar</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>
