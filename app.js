@@ -33,7 +33,36 @@ const inMonth = (d, ym) => typeof d === 'string' && d.startsWith(ym);
 const inRange = (d, a, b) => typeof d === 'string' && d >= a && d <= b;
 const LOW_STOCK = 5;
 const MAX_ROWS = 300;
-const CATEGORIAS_PRODUTO = ['Pratos', 'Porções', 'Bebidas', 'Sobremesas', 'Outros'];
+const CATEGORIAS_PRODUTO = ['Pratos', 'Petiscos', 'Porções', 'Bebidas', 'Sobremesas', 'Outros'];
+
+// Cardápio impresso da Barraca do Ivan. Cada tamanho de prato vira um produto próprio,
+// com o preço do cardápio. O custo começa em zero: o dono preenche depois.
+const PRATOS_CARDAPIO = [
+  // nome, preço para 2, para 3, para 4
+  ['Mariscada', 100, 150, 200],
+  ['Camaroada', 125, 187.5, 250],
+  ['Peixada com camarão', 120, 180, 240],
+  ['Peixada simples pescada', 115, 172.5, 230],
+  ['Peixada simples cavala', 100, 150, 200],
+  ['Escabeche pescada', 125, 187.5, 250],
+  ['Escabeche serra', 100, 150, 200],
+  ['Escabeche cavala', 105, 157.5, 210],
+  ['Peixe frito pescada', 110, 165, 220],
+  ['Peixe frito cavala', 100, 150, 200],
+  ['Peixe frito serra', 90, 135, 180],
+  ['Carne de sol', 110, 165, 220],
+];
+const CARDAPIO = [
+  ...PRATOS_CARDAPIO.flatMap(([nome, ...precos]) => precos.map((preco, i) => ({ nome: `${nome} (para ${i + 2})`, categoria: 'Pratos', preco }))),
+  ...[['Caldo de camarão', 28], ['Caldo de peixe', 26], ['Pescada frita 350g', 55], ['Serra frito 350g', 46], ['Cavala frito 350g', 48], ['Camarão ao alho e óleo', 72], ['Camarão à milanesa', 78], ['Carne de sol acebolada 400g', 58], ['Batata frita', 25], ['Macaxeira frita', 20]]
+    .map(([nome, preco]) => ({ nome, categoria: 'Petiscos', preco })),
+  ...[['Porção de arroz', 10], ['Porção de vinagrete', 5], ['Porção de farofa', 5], ['Porção de pirão', 5]]
+    .map(([nome, preco]) => ({ nome, categoria: 'Porções', preco })),
+  ...[['Água mineral 500ml', 5], ['Água mineral com gás 500ml', 8], ['Refrigerante litro', 15], ['Refrigerante latinha', 8], ['Cerveja garrafa 600ml', 14], ['Cerveja Heineken 600ml', 20], ['Caipirinha', 15], ['Caipirosca', 18], ['Coco', 8]]
+    .map(([nome, preco]) => ({ nome, categoria: 'Bebidas', preco })),
+];
+const nomeKey = s => String(s ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
+const cardapioFaltando = () => { const tem = new Set(data.produtos.map(p => nomeKey(p.nome))); return CARDAPIO.filter(c => !tem.has(nomeKey(c.nome))); };
 const CATEGORIAS_SAIDA = [['Compras', 'Compras (mercadoria e insumos)'], 'Gelo', 'Gás', 'Energia', 'Água', 'Aluguel', 'Embalagens', 'Transporte', 'Taxas e maquininha', 'Manutenção', 'Salários', 'Impostos', 'Outros'];
 const CATEGORIAS_ENTRADA = [['Vendas', 'Vendas fora do sistema'], 'Aporte do dono', 'Outros'];
 
@@ -44,6 +73,7 @@ const store = {
 };
 
 // ---------------- Estado ----------------
+try { localStorage.removeItem('barraca:contagemPendente'); } catch { /* sem armazenamento */ }
 // optional: a tela continua funcionando se a tabela ainda não foi criada no banco.
 // dateField: tabelas que crescem todo dia; só os últimos WINDOW_MONTHS meses são carregados.
 const SOURCES = {
@@ -53,8 +83,6 @@ const SOURCES = {
   funcionarios: { table: 'funcionarios', order: 'created_at', optional: true },
   pagamentos: { table: 'pagamentos_funcionarios', order: 'data', optional: true, dateField: 'data' },
   impostos: { table: 'impostos', order: 'vencimento', optional: true },
-  pratos: { table: 'pratos_contagem', order: 'nome', asc: true, optional: true },
-  contagens: { table: 'contagens_pratos', order: 'data', optional: true, dateField: 'data' },
 };
 const WINDOW_MONTHS = 12;
 const validYm = v => /^\d{4}-(0[1-9]|1[0-2])$/.test(v || '') ? v : null;
@@ -63,7 +91,7 @@ function windowFor() {
   const cur = today().slice(0, 7), sel = validYm($('periodo').value) || cur;
   return addMonths(sel < cur ? sel : cur, -WINDOW_MONTHS) + '-01';
 }
-const SETUP_FILES = { funcionarios: 'database-original.sql', pagamentos: 'folha-pagamentos.sql', impostos: 'impostos-upgrade.sql', pratos: 'contagem-pratos.sql', contagens: 'contagem-pratos.sql' };
+const SETUP_FILES = { funcionarios: 'database-original.sql', pagamentos: 'folha-pagamentos.sql', impostos: 'impostos-upgrade.sql' };
 const emptyData = () => Object.fromEntries(Object.keys(SOURCES).map(k => [k, []]));
 
 let db = null, sessionId = 0, entered = false, loading = false, reloadQueued = false, lastLoad = 0, working = false;
@@ -71,7 +99,6 @@ let loaded = false, windowStart = null; // loaded: já chegou ao menos uma carga
 let data = emptyData();
 let lastToday = today();
 const missing = new Set();
-let pendentes = store.get('contagemPendente', {}); // { prato_id: quantidade ainda não salva }
 
 // ---------------- Avisos e erros ----------------
 function toast(msg, type = 'ok') {
@@ -305,7 +332,7 @@ function calc(vendas, movs, pags) {
   const operacionais = despesas - compras;
   const resultado = bruto + entradas - operacionais - folha;
   const caixa = fat + entradas - despesas - folha;
-  return { fat, cmv, bruto, despesas, compras, operacionais, entradas, folha, resultado, caixa, itens: sum(vendas, v => v.quantidade), qtdVendas: vendas.length, margem: fat ? resultado / fat * 100 : NaN };
+  return { fat, cmv, bruto, despesas, compras, operacionais, entradas, folha, resultado, caixa, itens: sum(vendas, v => v.quantidade), qtdVendas: vendas.length, margem: fat ? resultado / fat * 100 : NaN, margemBruta: fat ? bruto / fat * 100 : NaN };
 }
 const filterBy = (pred) => [data.vendas.filter(v => pred(v.data)), data.movimentos.filter(m => pred(m.data)), data.pagamentos.filter(p => pred(p.data))];
 function weekRange(ref = today()) {
@@ -320,7 +347,6 @@ function groupSum(arr, keyFn, valFn) {
   return m;
 }
 const produtoById = id => data.produtos.find(p => p.id === id);
-const pratoById = id => data.pratos.find(p => p.id === id);
 
 // ---------------- Componentes de HTML ----------------
 function table(head, rows, { empty = 'Nenhum registro.', foot = '', more = '' } = {}) {
@@ -357,7 +383,6 @@ const optionList = list => list.map(o => { const [v, l] = Array.isArray(o) ? o :
 const PAGES = {
   dashboard: ['Visão geral', 'Resumo de hoje, da semana e do mês'],
   vendas: ['Anotar vendas', 'Vendas com preço, para acompanhar faturamento e lucro'],
-  contagem: ['Contagem de pratos', 'Quantos pratos saem por dia, sem valores'],
   produtos: ['Cardápio e custos', 'Preço, custo, margem e estoque de cada produto'],
   movimentos: ['Despesas e entradas', 'Gastos do dia a dia e entradas fora das vendas'],
   funcionarios: ['Funcionários', 'Equipe e pagamentos'],
@@ -381,7 +406,7 @@ function render() {
   const ym = validYm($('periodo').value) || today().slice(0, 7);
   const ctx = { ym, hoje: today() };
   // Cada seção é isolada: um erro em uma não apaga as outras.
-  for (const fn of [renderDashboard, renderVendas, renderContagem, renderProdutos, renderMovimentos, renderFuncionarios, renderImpostos, renderRelatorios]) {
+  for (const fn of [renderDashboard, renderVendas, renderProdutos, renderMovimentos, renderFuncionarios, renderImpostos, renderRelatorios]) {
     try { fn(ctx); } catch (e) { console.error(fn.name, e); }
   }
 }
@@ -408,24 +433,23 @@ function renderDashboard({ ym, hoje }) {
 
   // Hoje
   const h = calc(...filterBy(d => d === hoje));
-  const pratosHoje = sum(data.contagens.filter(c => c.data === hoje), c => c.quantidade);
   $('hojeLabel').textContent = `${DIAS[parseDate(hoje).getDay()]}, ${fmtDate(hoje)}`;
   $('kpiHoje').innerHTML = [
     kpi('Faturamento', money(h.fat), { hint: `${h.qtdVendas} venda(s)` }),
-    kpi('Itens vendidos', num(h.itens), { hint: missing.has('contagens') ? '' : `${num(pratosHoje)} prato(s) na contagem` }),
-    kpi('Lucro bruto', money(h.bruto), { tone: toneOf(h.bruto) }),
+    kpi('Itens vendidos', num(h.itens)),
+    kpi('Lucro bruto', money(h.bruto), { tone: toneOf(h.bruto), hint: `margem bruta ${pct(h.margemBruta)}` }),
     kpi('Despesas + pagamentos', money(h.despesas + h.folha), { hint: h.folha ? `inclui ${money(h.folha)} de funcionários` : '' }),
-    kpi('Resultado estimado', money(h.resultado), { tone: toneOf(h.resultado) }),
+    kpi('Lucro líquido', money(h.resultado), { tone: toneOf(h.resultado), hint: `margem líquida ${pct(h.margem)}` }),
   ].join('');
 
   // Semana
   const [ini, fim] = weekRange(hoje);
   const s = calc(...filterBy(d => inRange(d, ini, fim)));
   $('kpiSemana').innerHTML = [
-    kpi('Faturamento', money(s.fat), { hint: `${fmtDate(ini).slice(0, 5)} a ${fmtDate(fim).slice(0, 5)}` }),
-    kpi('Itens vendidos', num(s.itens)),
-    kpi('Despesas + salários', money(s.despesas + s.folha)),
-    kpi('Resultado estimado', money(s.resultado), { tone: toneOf(s.resultado) }),
+    kpi('Faturamento', money(s.fat), { hint: `${fmtDate(ini).slice(0, 5)} a ${fmtDate(fim).slice(0, 5)} · ${s.qtdVendas} venda(s)` }),
+    kpi('Lucro bruto', money(s.bruto), { tone: toneOf(s.bruto), hint: `margem bruta ${pct(s.margemBruta)}` }),
+    kpi('Despesas + salários', money(s.operacionais + s.folha), { hint: s.compras ? `fora ${money(s.compras)} em compras` : '' }),
+    kpi('Lucro líquido', money(s.resultado), { tone: toneOf(s.resultado), hint: `margem líquida ${pct(s.margem)}` }),
   ].join('');
 
   // Mês
@@ -434,13 +458,27 @@ function renderDashboard({ ym, hoje }) {
   $('kpiMes').innerHTML = [
     kpi('Faturamento de vendas', money(m.fat), { tone: 'main', hint: `${m.qtdVendas} venda(s) · ${num(m.itens)} itens` }),
     kpi('Custo dos produtos vendidos', money(m.cmv)),
-    kpi('Lucro bruto', money(m.bruto), { tone: toneOf(m.bruto) }),
+    kpi('Lucro bruto', money(m.bruto), { tone: toneOf(m.bruto), hint: `margem bruta ${pct(m.margemBruta)}` }),
     kpi('Despesas operacionais', money(m.operacionais), { hint: m.compras ? `fora ${money(m.compras)} em compras` : '' }),
     kpi('Pagamentos a funcionários', money(m.folha)),
     kpi('Entradas manuais', money(m.entradas)),
-    kpi('Resultado estimado', money(m.resultado), { tone: toneOf(m.resultado), hint: `margem ${pct(m.margem)}` }),
+    kpi('Lucro líquido', money(m.resultado), { tone: toneOf(m.resultado), hint: `margem líquida ${pct(m.margem)}` }),
     kpi('Saldo de caixa', money(m.caixa), { tone: toneOf(m.caixa), hint: 'tudo que entrou − tudo que saiu' }),
   ].join('');
+
+  // Para onde vai cada R$ 100 vendidos no mês
+  if (m.fat > 0) {
+    const parte = v => v / m.fat * 100;
+    const fatias = [
+      ['Custo dos produtos', m.cmv],
+      ['Despesas operacionais', m.operacionais],
+      ['Funcionários', m.folha],
+      [m.resultado >= 0 ? 'Sobra (lucro líquido)' : 'Prejuízo', Math.abs(m.resultado)],
+    ];
+    $('ondeVai').innerHTML = hBars(fatias.map(([label, v]) => ({ label, value: v, sub: `${pct(parte(v))} · ${money(parte(v))} de cada R$ 100` })))
+      + (m.entradas ? `<p class="chart-note">Inclui ${money(m.entradas)} de entradas manuais no lucro líquido.</p>` : '')
+      + (data.produtos.some(p => p.ativo !== false && n(p.custo) === 0 && n(p.preco) > 0) ? '<p class="chart-note">Há produtos com custo R$ 0,00: o custo real é maior e o lucro, menor. Preencha o custo em Cardápio e custos.</p>' : '');
+  } else $('ondeVai').innerHTML = '<p class="empty-box">Sem vendas no mês.</p>';
 
   // Gráfico diário
   const vm = data.vendas.filter(v => inMonth(v.data, ym));
@@ -494,109 +532,17 @@ function updateVendaPreview() {
   $('previewVenda').innerHTML = p && q > 0 ? `Total: <b>${money(round2(q * n(p.preco)))}</b> · lucro bruto ${money(round2(q * (n(p.preco) - n(p.custo))))}` : '';
 }
 
-function renderContagem({ ym }) {
-  const off = missing.has('pratos') || missing.has('contagens');
-  $('contagemSetup').classList.toggle('hidden', !off);
-  $('contagemBody').classList.toggle('hidden', off);
-  if (off) return;
-
-  const dia = $('contagemData').value || today();
-  const ativos = data.pratos.filter(p => p.ativo !== false).sort((a, b) => String(a.categoria).localeCompare(String(b.categoria), 'pt-BR') || byName(a, b));
-  // Descarta quantidades pendentes de pratos removidos ou desativados
-  // (só depois que os dados chegaram; antes disso a lista de pratos ainda está vazia).
-  if (loaded) {
-    for (const id of Object.keys(pendentes)) if (!ativos.some(p => p.id === id)) delete pendentes[id];
-    store.set('contagemPendente', pendentes);
-  }
-
-  const doDia = data.contagens.filter(c => c.data === dia);
-  const reg = groupSum(doDia, c => c.prato_id, c => c.quantidade);
-  const nomeDe = c => pratoById(c.prato_id)?.nome || c.prato_nome;
-
-  // Não redesenha o contador enquanto alguém digita uma quantidade nele.
-  const digitando = $('contadorGrid').contains(document.activeElement) && document.activeElement.tagName === 'INPUT';
-  if (digitando) { /* mantém como está */ }
-  else if (!ativos.length) {
-    $('contadorGrid').innerHTML = '<p class="empty-box">Cadastre seus pratos no fim desta página para começar a contar.</p>';
-  } else {
-    const cats = [...new Set(ativos.map(p => p.categoria))];
-    $('contadorGrid').innerHTML = cats.map(c => `<h4 class="counter-cat">${safe(c)}</h4><div class="counter-grid">${ativos.filter(p => p.categoria === c).map(p => {
-      const q = pendentes[p.id] || 0;
-      return `<div class="counter${q ? ' has-pending' : ''}" data-id="${safe(p.id)}"><div class="counter-info"><strong>${safe(p.nome)}</strong><small>Já salvo no dia: <b>${num(reg.get(p.id) || 0)}</b></small></div><div class="stepper"><button type="button" data-step="-1" aria-label="Diminuir ${safe(p.nome)}">−</button><input type="number" min="0" max="10000" step="1" inputmode="numeric" value="${q}" aria-label="Quantidade de ${safe(p.nome)}"><button type="button" data-step="1" aria-label="Aumentar ${safe(p.nome)}">+</button></div></div>`;
-    }).join('')}</div>`).join('');
-  }
-  updatePendingBar();
-
-  // Registrado no dia
-  const totalDia = sum(doDia, c => c.quantidade);
-  const topDia = [...groupSum(doDia, nomeDe, c => c.quantidade).entries()].sort((a, b) => b[1] - a[1])[0];
-  $('kpiContagemDia').innerHTML = [kpi('Pratos no dia', num(totalDia), { hint: `${DIAS[parseDate(dia).getDay()]}, ${fmtDate(dia)}` }), kpi('Pratos diferentes', num(reg.size)), kpi('Mais pedido', topDia ? topDia[0] : '—', { hint: topDia ? `${num(topDia[1])} unidade(s)` : '' })].join('');
-  $('listaContagemDia').innerHTML = table(['Hora', 'Prato', ['Qtd.', 'num'], ['', 'actions']],
-    [...doDia].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(c => `<tr><td>${fmtTime(c.created_at)}</td><td>${safe(nomeDe(c))}</td><td class="num">${num(c.quantidade)}</td><td class="actions">${act('delContagem', c.id, 'Excluir', true)}</td></tr>`),
-    { empty: 'Nada salvo neste dia.' });
-
-  // Últimos 7 dias (terminando no dia escolhido)
-  const dias7 = Array.from({ length: 7 }, (_, i) => addDays(dia, i - 6));
-  const c7 = data.contagens.filter(c => inRange(c.data, dias7[0], dia));
-  const porPrato = new Map();
-  for (const c of c7) {
-    const nome = nomeDe(c);
-    const row = porPrato.get(nome) || { total: 0, dias: {} };
-    row.total += n(c.quantidade); row.dias[c.data] = (row.dias[c.data] || 0) + n(c.quantidade);
-    porPrato.set(nome, row);
-  }
-  const tot7 = groupSum(c7, c => c.data, c => c.quantidade);
-  $('contagem7dias').innerHTML = table(['Prato', ...dias7.map(d => [`${DIAS_CURTO[parseDate(d).getDay()]} ${d.slice(8)}`, 'num']), ['Total', 'num']],
-    [...porPrato.entries()].sort((a, b) => b[1].total - a[1].total).map(([nome, r]) => `<tr><td>${safe(nome)}</td>${dias7.map(d => `<td class="num">${r.dias[d] ? num(r.dias[d]) : '<span class="muted">·</span>'}</td>`).join('')}<td class="num"><b>${num(r.total)}</b></td></tr>`),
-    { empty: 'Sem contagens nesses 7 dias.', foot: porPrato.size ? `<tr><td>Total</td>${dias7.map(d => `<td class="num">${num(tot7.get(d) || 0)}</td>`).join('')}<td class="num">${num(sum(c7, c => c.quantidade))}</td></tr>` : '' });
-
-  // Ranking do mês
-  const cm = data.contagens.filter(c => inMonth(c.data, ym));
-  const totalMes = sum(cm, c => c.quantidade);
-  const diasComRegistro = new Set(cm.map(c => c.data)).size;
-  $('rankingPratos').innerHTML = hBars([...groupSum(cm, nomeDe, c => c.quantidade).entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ label: k, value: v, sub: `${pct(v / totalMes * 100)} · ${num(Math.round(v / diasComRegistro * 10) / 10)}/dia` })),
-    { fmt: num, empty: `Sem contagens em ${fmtMonth(ym)}.` }) + (totalMes ? `<p class="chart-note"><b>${num(totalMes)}</b> pratos em ${diasComRegistro} dia(s) com registro · média de <b>${num(Math.round(totalMes / diasComRegistro))}</b> por dia.</p>` : '');
-
-  // Média por dia da semana (só conta dias que tiveram registro)
-  const porData = groupSum(cm, c => c.data, c => c.quantidade);
-  const semana = [1, 2, 3, 4, 5, 6, 0].map(w => {
-    const ds = [...porData.entries()].filter(([d]) => parseDate(d).getDay() === w);
-    const media = ds.length ? sum(ds, x => x[1]) / ds.length : 0;
-    return { label: DIAS_CURTO[w], value: Math.round(media * 10) / 10, dias: ds.length, w };
-  });
-  const best = [...semana].sort((a, b) => b.value - a.value)[0];
-  $('chartSemanaPratos').innerHTML = barChart(semana.map(s => ({ ...s, hl: best.value > 0 && s === best, title: `${DIAS[s.w]}: média de ${num(s.value)} pratos (${s.dias} dia(s))` })), { fmt: num, height: 160 })
-    + (best.value ? `<p class="chart-note">Dia mais forte do mês: <b>${DIAS[best.w]}</b>, com média de ${num(best.value)} pratos.</p>` : '');
-
-  // Lista de pratos
-  const totMesPrato = groupSum(cm, c => c.prato_id, c => c.quantidade);
-  const usados = new Set(data.contagens.map(c => c.prato_id));
-  $('listaPratos').innerHTML = table(['Prato', 'Categoria', ['No mês', 'num'], 'Situação', ['', 'actions']],
-    [...data.pratos].sort(byName).map(p => `<tr><td>${safe(p.nome)}</td><td>${safe(p.categoria)}</td><td class="num">${num(totMesPrato.get(p.id) || 0)}</td><td>${p.ativo === false ? badge('Inativo') : badge('Ativo', 'ok')}</td><td class="actions">${act('editPrato', p.id, 'Editar')}${act('togglePrato', p.id, p.ativo === false ? 'Reativar' : 'Desativar')}${usados.has(p.id) ? '' : act('delPrato', p.id, 'Excluir', true)}</td></tr>`),
-    { empty: 'Nenhum prato cadastrado.' });
-}
-function updatePendingBar() {
-  const total = Object.values(pendentes).reduce((a, b) => a + n(b), 0);
-  const tipos = Object.keys(pendentes).length;
-  const dia = $('contagemData').value || today();
-  $('contagemPendente').textContent = total ? `${num(total)} prato(s) de ${tipos} tipo(s) para salvar em ${fmtDate(dia)}` : 'Nada para salvar.';
-  $('salvarContagem').disabled = !total;
-  $('zerarContagem').disabled = !total;
-  document.querySelector('.counter-bar').classList.toggle('active', !!total);
-}
-function setPendente(id, value, card) {
-  const v = Math.max(0, Math.min(10000, Math.floor(n(value))));
-  if (v) pendentes[id] = v; else delete pendentes[id];
-  store.set('contagemPendente', pendentes);
-  if (card) {
-    card.classList.toggle('has-pending', v > 0);
-    const input = card.querySelector('input');
-    if (input && String(input.value) !== String(v)) input.value = v;
-  }
-  updatePendingBar();
-}
-
 function renderProdutos() {
+  // Cartão do cardápio pronto: aparece só depois da carga e enquanto faltar algum item.
+  const faltam = loaded && !missing.has('produtos') ? cardapioFaltando() : [];
+  $('cardapioPronto').classList.toggle('hidden', !faltam.length);
+  if (faltam.length) {
+    const porCat = groupSum(faltam, c => c.categoria, () => 1);
+    $('cardapioResumo').textContent = `${faltam.length} item(ns) do cardápio ainda não estão cadastrados: ${[...porCat.entries()].map(([c, q]) => `${q} em ${c}`).join(', ')}.`;
+  }
+  const semCusto = data.produtos.filter(p => p.ativo !== false && n(p.custo) === 0 && n(p.preco) > 0).length;
+  $('btnCustoEstimado').classList.toggle('hidden', !semCusto);
+  $('btnCustoEstimado').textContent = `Preencher custo de ${semCusto} produto(s)…`;
   const busca = $('buscaProduto').value.trim().toLocaleLowerCase('pt-BR');
   const lista = [...data.produtos].filter(p => !busca || String(p.nome).toLocaleLowerCase('pt-BR').includes(busca))
     .sort((a, b) => (a.ativo === false) - (b.ativo === false) || String(a.categoria).localeCompare(String(b.categoria), 'pt-BR') || byName(a, b));
@@ -667,12 +613,21 @@ function renderImpostos({ ym, hoje }) {
 function renderRelatorios({ ym }) {
   const meses = Array.from({ length: 6 }, (_, i) => addMonths(ym, i - 5));
   const res = meses.map(mm => ({ mm, ...calc(...filterBy(d => inMonth(d, mm))) }));
-  $('chartEvolucao').innerHTML = barChart(res.map(r => ({ label: fmtMonthShort(r.mm), value: r.fat, hl: r.mm === ym, title: `${fmtMonth(r.mm)}: faturamento ${money(r.fat)}, resultado ${money(r.resultado)}` })), { height: 150 });
-  $('tabelaEvolucao').innerHTML = table(['Mês', ['Faturamento', 'num'], ['Lucro bruto', 'num'], ['Despesas + folha', 'num'], ['Resultado', 'num'], ['Margem', 'num'], ['Saldo de caixa', 'num']],
+  $('chartEvolucao').innerHTML = barChart(res.map(r => ({ label: fmtMonthShort(r.mm), value: r.fat, hl: r.mm === ym, title: `${fmtMonth(r.mm)}: faturamento ${money(r.fat)}, lucro líquido ${money(r.resultado)}` })), { height: 150 });
+  $('tabelaEvolucao').innerHTML = table(['Mês', ['Faturamento', 'num'], ['Lucro bruto', 'num'], ['Despesas + folha', 'num'], ['Lucro líquido', 'num'], ['Margem líquida', 'num'], ['Saldo de caixa', 'num']],
     res.map((r, i) => {
       const ant = res[i - 1], varia = ant && ant.fat ? (r.fat - ant.fat) / ant.fat * 100 : NaN;
       return `<tr><td>${safe(fmtMonth(r.mm))}</td><td class="num">${money(r.fat)}${Number.isFinite(varia) ? ` <small class="${toneOf(varia)}-t">${varia > 0 ? '+' : ''}${pct(varia)}</small>` : ''}</td><td class="num">${money(r.bruto)}</td><td class="num">${money(r.operacionais + r.folha)}</td><td class="num">${signed(r.resultado)}</td><td class="num">${pct(r.margem)}</td><td class="num">${signed(r.caixa)}</td></tr>`;
     }).reverse());
+
+  // Últimas 8 semanas (segunda a domingo), terminando na semana de hoje.
+  const [segAtual] = weekRange(today());
+  const semanas = Array.from({ length: 8 }, (_, i) => addDays(segAtual, -7 * i)).map(ini => {
+    const fim = addDays(ini, 6);
+    return { ini, fim, ...calc(...filterBy(d => inRange(d, ini, fim))) };
+  });
+  $('tabelaSemanas').innerHTML = table(['Semana', ['Faturamento', 'num'], ['Lucro bruto', 'num'], ['Margem bruta', 'num'], ['Despesas + folha', 'num'], ['Lucro líquido', 'num'], ['Margem líquida', 'num']],
+    semanas.map((w, i) => `<tr><td>${fmtDate(w.ini).slice(0, 5)} a ${fmtDate(w.fim).slice(0, 5)}${i === 0 ? ' ' + badge('atual', 'info') : ''}</td><td class="num">${money(w.fat)}</td><td class="num">${money(w.bruto)}</td><td class="num">${pct(w.margemBruta)}</td><td class="num">${money(w.operacionais + w.folha)}</td><td class="num">${signed(w.resultado)}</td><td class="num">${pct(w.margem)}</td></tr>`));
 
   const ms = data.movimentos.filter(m => inMonth(m.data, ym) && m.tipo === 'saida');
   const cat = groupSum(ms, m => m.categoria, m => m.valor);
@@ -722,7 +677,6 @@ const CSV = {
   movimentos: { date: 'data', cols: [['data', 'Data', 'date'], ['tipo', 'Tipo'], ['categoria', 'Categoria'], ['descricao', 'Descrição'], ['valor', 'Valor', 'num']] },
   pagamentos: { date: 'data', cols: [['data', 'Data', 'date'], ['funcionario_nome', 'Funcionário'], ['tipo', 'Tipo'], ['valor', 'Valor', 'num'], ['observacao', 'Observação']] },
   impostos: { date: 'vencimento', map: r => ({ ...r, pago: r.pago ? 'Sim' : 'Não' }), cols: [['descricao', 'Descrição'], ['competencia', 'Competência'], ['vencimento', 'Vencimento', 'date'], ['valor', 'Valor', 'num'], ['pago', 'Pago'], ['data_pagamento', 'Data do pagamento', 'date']] },
-  contagens: { date: 'data', map: c => ({ ...c, prato: pratoById(c.prato_id)?.nome || c.prato_nome }), cols: [['data', 'Data', 'date'], ['prato', 'Prato'], ['quantidade', 'Quantidade', 'num']] },
   produtos: { date: null, map: r => ({ ...r, ativo: simNao(r.ativo) }), cols: [['nome', 'Produto'], ['categoria', 'Categoria'], ['custo', 'Custo', 'num'], ['preco', 'Preço', 'num'], ['estoque', 'Estoque', 'num'], ['ativo', 'Ativo']] },
 };
 async function exportCsv(kind, btn) {
@@ -833,37 +787,6 @@ const ACTIONS = {
     if (!await confirmar('Excluir obrigação', `${t.descricao} — ${money(t.valor)}`, 'Excluir', true)) return;
     return [() => remove('impostos', id), 'Obrigação excluída.'];
   },
-  async editPrato(id) {
-    const p = pratoById(id);
-    if (!p) throw Error('Prato não encontrado.');
-    const r = await ask({ title: 'Editar prato', message: 'O novo nome também aparece nas contagens antigas.', ok: 'Salvar', fields: [
-      { name: 'nome', label: 'Nome do prato', value: p.nome, maxlength: 120 },
-      { name: 'categoria', label: 'Categoria', value: p.categoria, maxlength: 60, list: 'categoriasPratos' },
-    ] });
-    if (!r) return;
-    const nome = text(r.nome, { max: 120, label: 'o nome' });
-    if (data.pratos.some(x => x.id !== id && x.nome.toLocaleLowerCase('pt-BR') === nome.toLocaleLowerCase('pt-BR'))) throw Error('Já existe um prato com esse nome.');
-    return [() => update('pratos_contagem', id, { nome, categoria: text(r.categoria, { max: 60, label: 'a categoria' }) }), 'Prato atualizado.'];
-  },
-  async togglePrato(id) {
-    const p = pratoById(id);
-    if (!p) throw Error('Prato não encontrado.');
-    const ativo = p.ativo === false;
-    return [() => update('pratos_contagem', id, { ativo }), ativo ? 'Prato reativado.' : 'Prato desativado (as contagens antigas continuam).'];
-  },
-  async delPrato(id) {
-    const p = pratoById(id);
-    if (!p) throw Error('Prato não encontrado.');
-    if (data.contagens.some(c => c.prato_id === id)) throw Error('Este prato já tem contagens. Desative em vez de excluir.');
-    if (!await confirmar('Excluir prato', p.nome, 'Excluir', true)) return;
-    return [() => remove('pratos_contagem', id), 'Prato excluído.'];
-  },
-  async delContagem(id) {
-    const c = data.contagens.find(x => x.id === id);
-    if (!c) throw Error('Registro não encontrado.');
-    if (!await confirmar('Excluir contagem', `${num(c.quantidade)} × ${pratoById(c.prato_id)?.nome || c.prato_nome} em ${fmtDate(c.data)}`, 'Excluir', true)) return;
-    return [() => remove('contagens_pratos', id), 'Contagem excluída.'];
-  },
 };
 async function handleAction(name, id, btn) {
   if (!ACTIONS[name]) return;
@@ -872,27 +795,6 @@ async function handleAction(name, id, btn) {
     const job = await ACTIONS[name](id);
     if (job) await run(btn, job[0], job[1], job[2] || []);
   } catch (e) { fail(e); }
-}
-
-// ---------------- Contagem: salvar ----------------
-async function salvarContagem() {
-  let dia;
-  try { dia = dateVal($('contagemData').value, { future: false, label: 'Dia da contagem' }); } catch (e) { fail(e); return; }
-  const rows = Object.entries(pendentes).map(([id, q]) => ({ p: pratoById(id), q: Math.floor(n(q)) }))
-    .filter(x => x.p && x.p.ativo !== false && x.q > 0)
-    .map(x => ({ prato_id: x.p.id, prato_nome: x.p.nome, quantidade: x.q, data: dia }));
-  if (!rows.length) { toast('Nada para salvar.', 'warn'); return; }
-  const total = rows.reduce((a, r) => a + r.quantidade, 0);
-  const ok = await run($('salvarContagem'), async () => {
-    await insert('contagens_pratos', rows);
-    // Desconta só o que foi salvo: toques feitos durante o envio continuam pendentes.
-    for (const r of rows) {
-      const resto = Math.floor(n(pendentes[r.prato_id])) - r.quantidade;
-      if (resto > 0) pendentes[r.prato_id] = resto; else delete pendentes[r.prato_id];
-    }
-    store.set('contagemPendente', pendentes);
-  }, `Contagem salva: ${num(total)} prato(s) em ${fmtDate(dia)}.`);
-  if (!ok) updatePendingBar();
 }
 
 // ---------------- Tempo real entre aparelhos ----------------
@@ -955,7 +857,6 @@ function enter(session) {
   void load();
   startRealtime();
 }
-// A contagem pendente fica guardada mesmo se a sessão expirar; só o botão Sair a apaga.
 function leave() {
   stopRealtime();
   entered = false;
@@ -1000,10 +901,6 @@ function bindUI() {
     finally { btn.disabled = false; btn.textContent = 'Entrar'; }
   });
   $('logoutBtn').addEventListener('click', async () => {
-    const qtd = Object.values(pendentes).reduce((a, b) => a + n(b), 0);
-    if (qtd && !await confirmar('Sair sem salvar a contagem?', `Há ${num(qtd)} prato(s) contados que ainda não foram salvos. Se sair agora, eles serão descartados.`, 'Sair e descartar', true)) return;
-    pendentes = {};
-    store.set('contagemPendente', pendentes);
     const { error } = await db.auth.signOut();
     if (error) { await db.auth.signOut({ scope: 'local' }); leave(); }
   });
@@ -1038,9 +935,7 @@ function bindUI() {
   $('buscaVenda').addEventListener('input', only(renderVendas));
   $('buscaProduto').addEventListener('input', only(renderProdutos));
   $('filtroMovTipo').addEventListener('change', only(renderMovimentos));
-  $('contagemData').addEventListener('change', only(renderContagem));
-  // Outra aba do navegador alterou a contagem pendente: sincroniza para não salvar em dobro.
-  window.addEventListener('storage', e => { if (e.key === 'barraca:contagemPendente') { pendentes = store.get('contagemPendente', {}) || {}; if (entered) only(renderContagem)(); } });
+
 
   // Vendas
   $('formVenda').addEventListener('input', updateVendaPreview);
@@ -1059,27 +954,6 @@ function bindUI() {
     return `Venda registrada: ${num(qtd)} × ${prod.nome} (${money(round2(qtd * n(prod.preco)))}).`;
   }, 'Venda registrada.', ['pagamento', 'data'], ['vendas', 'produtos']);
 
-  // Contagem de pratos
-  $('contadorGrid').addEventListener('click', e => {
-    const b = e.target.closest('[data-step]');
-    if (!b) return;
-    const card = b.closest('.counter'), input = card.querySelector('input');
-    setPendente(card.dataset.id, n(input.value) + Number(b.dataset.step), card);
-    card.classList.remove('bump'); void card.offsetWidth; card.classList.add('bump');
-  });
-  $('contadorGrid').addEventListener('input', e => {
-    if (e.target.matches('.stepper input')) { const card = e.target.closest('.counter'); setPendente(card.dataset.id, e.target.value, null); card.classList.toggle('has-pending', n(e.target.value) > 0); }
-  });
-  $('contadorGrid').addEventListener('change', e => { if (e.target.matches('.stepper input')) setPendente(e.target.closest('.counter').dataset.id, e.target.value, e.target.closest('.counter')); });
-  $('salvarContagem').addEventListener('click', salvarContagem);
-  $('zerarContagem').addEventListener('click', async () => { if (await confirmar('Zerar contagem', 'Descartar as quantidades que ainda não foram salvas?', 'Zerar', true)) { pendentes = {}; store.set('contagemPendente', pendentes); render(); } });
-  bindForm('formPrato', async f => {
-    const nome = text(f.nome, { max: 120, label: 'o nome do prato' });
-    if (data.pratos.some(p => p.nome.toLocaleLowerCase('pt-BR') === nome.toLocaleLowerCase('pt-BR'))) throw Error('Já existe um prato com esse nome.');
-    await insert('pratos_contagem', { nome, categoria: text(f.categoria, { max: 60, label: 'a categoria' }) });
-    return `Prato “${nome}” adicionado.`;
-  }, 'Prato adicionado.', ['categoria']);
-
   // Cardápio
   $('formProduto').addEventListener('input', updateProdutoForm);
   $('formProduto').addEventListener('change', updateProdutoForm);
@@ -1091,6 +965,32 @@ function bindUI() {
     await insert('produtos', row);
     return `Produto “${row.nome}” cadastrado.`;
   }, 'Produto cadastrado.', ['categoria', 'controla_estoque']);
+
+  // Cadastra de uma vez os itens do cardápio que ainda não existem (pelo nome).
+  $('btnCardapio').addEventListener('click', async e => {
+    if (working) { toast('Aguarde a operação anterior terminar.', 'warn'); return; }
+    if (!loaded) { toast('Aguarde os dados carregarem.', 'warn'); return; }
+    const faltam = cardapioFaltando();
+    if (!faltam.length) { toast('O cardápio já está todo cadastrado.'); return; }
+    if (!await confirmar('Cadastrar cardápio', `Serão cadastrados ${faltam.length} itens com os preços do cardápio, custo R$ 0,00 e sem controle de estoque. Itens com o mesmo nome já cadastrados não são repetidos. Depois, preencha o custo de cada um para ver o lucro certo.`, 'Cadastrar')) return;
+    await run(e.currentTarget, () => insert('produtos', faltam.map(c => ({ nome: c.nome, categoria: c.categoria, preco: c.preco, custo: 0, estoque: 0, controla_estoque: false }))), `${faltam.length} itens do cardápio cadastrados.`);
+  });
+
+  // Custo estimado por porcentagem do preço, só para produtos que estão com custo zero.
+  $('btnCustoEstimado').addEventListener('click', async e => {
+    if (working) { toast('Aguarde a operação anterior terminar.', 'warn'); return; }
+    const alvo = data.produtos.filter(p => p.ativo !== false && n(p.custo) === 0 && n(p.preco) > 0);
+    if (!alvo.length) { toast('Nenhum produto ativo está com custo zero.'); return; }
+    const r = await ask({ title: 'Preencher custo estimado', message: `${alvo.length} produto(s) estão com custo R$ 0,00. Informe quanto, em média, do preço vai em ingredientes e mercadoria. Exemplo: 40 quer dizer que um prato de R$ 100,00 custa R$ 40,00 para fazer. Produtos que já têm custo não mudam, e você pode corrigir cada um depois em “Editar”. O custo vale para as vendas registradas a partir de agora.`, ok: 'Aplicar', fields: [{ name: 'pct', label: 'Custo (% do preço)', type: 'number', min: 1, max: 95, step: 1, value: 40, inputmode: 'numeric' }] });
+    if (!r) return;
+    let pc;
+    try { pc = amount(r.pct, { min: 1, max: 95, label: 'Porcentagem' }); } catch (err) { fail(err); return; }
+    let feitos = 0;
+    const ok = await run(e.currentTarget, async () => {
+      for (const p of alvo) { await update('produtos', p.id, { custo: round2(n(p.preco) * pc / 100) }); feitos++; }
+    }, `Custo estimado em ${num(pc)}% do preço aplicado a ${alvo.length} produto(s).`);
+    if (!ok && feitos) { toast(`${feitos} de ${alvo.length} produto(s) foram atualizados antes do erro.`, 'warn'); render(); }
+  });
 
   // Despesas e entradas
   updateMovCategorias();
@@ -1124,15 +1024,17 @@ function bindUI() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible' || !entered) return;
     rolloverDay();
-    if (Date.now() - lastLoad > 60000) void load();
+    // Com tempo real ligado, as novidades chegam sozinhas; ao voltar para a tela só recarrega tudo
+    // depois de 3 minutos fora (o celular pode ter derrubado a conexão em segundo plano).
+    if (Date.now() - lastLoad > (live ? 180000 : 60000)) void load();
   });
   setInterval(rolloverDay, 60000);
   // Sem tempo real ativo, confere novidades a cada minuto enquanto a tela estiver aberta.
-  // Com tempo real, confere a cada 5 minutos por segurança (avisos podem se perder numa queda rápida).
-  setInterval(() => { if (entered && !working && document.visibilityState === 'visible' && Date.now() - lastLoad > (live ? 300000 : 55000)) void load(); }, 15000);
+  // Com tempo real, confere a cada 15 minutos por segurança. Cada conferência baixa os
+  // últimos 12 meses de dados, então repetir mais que isso gasta internet do celular à toa.
+  setInterval(() => { if (entered && !working && document.visibilityState === 'visible' && Date.now() - lastLoad > (live ? 900000 : 55000)) void load(); }, 15000);
   window.addEventListener('offline', () => toast('Você está sem internet. As gravações vão falhar até a conexão voltar.', 'warn'));
   window.addEventListener('online', () => { toast('Conexão restabelecida.'); if (entered) void load(); });
-  window.addEventListener('beforeunload', e => { if (Object.keys(pendentes).length && entered) { e.preventDefault(); e.returnValue = ''; } });
 }
 // Depois da meia-noite, os campos que estavam com "hoje" passam para o novo dia.
 function rolloverDay() {

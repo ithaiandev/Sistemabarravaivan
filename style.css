@@ -138,7 +138,7 @@ label.check input { width: auto; min-height: 0; }
 main { padding: 22px 28px 8px; max-width: 1280px; width: 100%; min-width: 0; }
 footer { color: var(--muted); font-size: 12px; padding: 18px 28px 28px; }
 .page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; animation: fade .2s ease; }
-.grid-2 > *, .kpis > *, .counter-grid > * { min-width: 0; }
+.grid-2 > *, .kpis > * { min-width: 0; }
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } }
 .section-title { font-size: 15px; display: flex; gap: 8px; align-items: baseline; margin-top: 4px; }
 .section-title .muted { font-weight: 500; font-size: 13px; }
@@ -218,22 +218,6 @@ td.empty { text-align: center; color: var(--muted); padding: 22px; white-space: 
 .hbars li:first-child .hb-fill { background: var(--accent); }
 .empty-box { color: var(--muted); text-align: center; padding: 26px 10px; font-size: 14px; }
 
-/* ---------- Contador de pratos ---------- */
-.counter-cat { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 6px 0 8px; }
-.counter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-bottom: 14px; }
-.counter { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); transition: border-color .15s, background .15s; }
-.counter.has-pending { border-color: var(--brand); background: var(--brand-soft); }
-.counter-info strong { display: block; font-size: 15px; overflow-wrap: anywhere; }
-.counter-info small { color: var(--muted); }
-.stepper { display: grid; grid-template-columns: 48px 1fr 48px; gap: 6px; }
-.stepper button { min-height: 46px; border: 0; border-radius: 10px; background: var(--surface); color: var(--text); font-size: 24px; font-weight: 700; cursor: pointer; box-shadow: inset 0 0 0 1px var(--line); touch-action: manipulation; }
-.stepper button[data-step="1"] { background: var(--brand); color: #fff; box-shadow: none; }
-.stepper button:active { transform: scale(.96); }
-.stepper input { text-align: center; font-size: 19px; font-weight: 700; min-height: 46px; padding: 6px; }
-.counter.bump { animation: bump .18s ease; }
-@keyframes bump { 50% { transform: scale(1.02); } }
-.counter-bar { position: sticky; bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border-radius: 12px; background: var(--surface); box-shadow: 0 0 0 1px var(--line), var(--shadow); font-weight: 600; }
-.counter-bar.active { box-shadow: 0 0 0 2px var(--brand), var(--shadow); }
 
 /* ---------- Diálogo ---------- */
 dialog { border: 0; padding: 0; border-radius: 18px; width: min(520px, calc(100% - 32px)); background: var(--surface); color: var(--text); box-shadow: 0 20px 60px #0005; }
@@ -279,14 +263,8 @@ dialog::backdrop { background: #0b1f23a6; backdrop-filter: blur(2px); }
   .kpis { grid-template-columns: 1fr 1fr; gap: 10px; }
   .kpi { padding: 12px; }
   .kpi-value { font-size: 18px; }
-  .counter-grid { grid-template-columns: 1fr; }
-  .counter { flex-direction: row; align-items: center; justify-content: space-between; }
-  .stepper { grid-template-columns: 44px 64px 44px; flex: none; }
   .vchart.dense .vcol:not(:nth-child(5n+1)) .vlabel { visibility: hidden; }
   table { font-size: 13px; }
   th, td { padding: 9px 10px; }
-  .counter-bar { bottom: 8px; }
-  .counter-bar .btn-row { width: 100%; }
-  .counter-bar .btn { flex: 1; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
