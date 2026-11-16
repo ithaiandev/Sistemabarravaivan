@@ -480,23 +480,6 @@ function renderDashboard({ ym, hoje }) {
     kpi('Saldo de caixa', money(m.caixa), { tone: toneOf(m.caixa), hint: 'tudo que entrou − tudo que saiu' }),
   ].join('');
 
-  // Para onde vai cada R$ 100 vendidos no mês
-  if (m.fat > 0) {
-    const parte = v => v / m.fat * 100;
-    const fatias = [
-      ['Custo dos produtos', m.cmv],
-      ['Despesas operacionais', m.operacionais],
-      ['Funcionários', m.folha],
-      [m.resultado >= 0 ? 'Sobra (lucro líquido)' : 'Prejuízo', Math.abs(m.resultado)],
-    ];
-    $('ondeVai').innerHTML = hBars(fatias.map(([label, v]) => ({ label, value: v, sub: pct(parte(v)) })))
-      + `<p class="chart-note">${m.resultado >= 0
-        ? `Leia assim: ${pct(parte(m.resultado))} de lucro líquido quer dizer que sobram ${money(parte(m.resultado))} de cada R$ 100,00 vendidos.`
-        : `Prejuízo: para cada R$ 100,00 vendidos, faltaram ${money(parte(-m.resultado))} para pagar tudo.`}</p>`
-      + (m.entradas ? `<p class="chart-note">Inclui ${money(m.entradas)} de entradas manuais no lucro líquido.</p>` : '')
-      + (data.produtos.some(p => p.ativo !== false && n(p.custo) === 0 && n(p.preco) > 0) ? '<p class="chart-note">Há produtos com custo R$ 0,00: o custo real é maior e o lucro, menor. Preencha o custo em Cardápio e custos.</p>' : '');
-  } else $('ondeVai').innerHTML = '<p class="empty-box">Sem vendas no mês.</p>';
-
   // Gráfico diário
   const vm = data.vendas.filter(v => inMonth(v.data, ym));
   const porDia = groupSum(vm, v => v.data, v => v.total);
@@ -504,9 +487,6 @@ function renderDashboard({ ym, hoje }) {
   $('chartDias').innerHTML = barChart(dias.map(d => ({ label: String(+d.slice(8)), value: porDia.get(d) || 0, hl: d === hoje, title: `${DIAS_CURTO[parseDate(d).getDay()]} ${fmtDate(d)}: ${money(porDia.get(d) || 0)}` })), { dense: true });
   const melhor = [...porDia.entries()].sort((a, b) => b[1] - a[1])[0];
   if (melhor) $('chartDias').innerHTML += `<p class="chart-note">Melhor dia: <b>${DIAS[parseDate(melhor[0]).getDay()]}, ${fmtDate(melhor[0])}</b> com ${money(melhor[1])}. Média por dia com venda: <b>${money(m.fat / porDia.size)}</b>.</p>`;
-
-  const porPag = groupSum(vm, v => v.pagamento, v => v.total);
-  $('chartPagamentos').innerHTML = hBars([...porPag.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ label: k, value: v, sub: pct(m.fat ? v / m.fat * 100 : NaN) })));
 
   $('ultimasVendas').innerHTML = table([...VENDA_HEAD, ['', 'actions']], sortVendas(data.vendas).slice(0, 8).map(v => vendaRow(v)), { empty: 'Nenhuma venda registrada ainda.' });
 }
