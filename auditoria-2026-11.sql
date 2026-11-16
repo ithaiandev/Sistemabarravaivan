@@ -19,7 +19,8 @@ begin
     'public.tempo_real_ativo()'
   ] loop
     if to_regprocedure(f) is not null then
-      execute format('revoke execute on function %s from anon', f);
+      -- "public" também: em bancos onde a função foi recriada, o visitante herda a permissão por ele.
+      execute format('revoke execute on function %s from public, anon', f);
       execute format('grant execute on function %s to authenticated', f);
     end if;
   end loop;
