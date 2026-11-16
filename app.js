@@ -354,6 +354,20 @@ function table(head, rows, { empty = 'Nenhum registro.', foot = '', more = '' } 
   const body = rows.length ? rows.join('') : `<tr><td colspan="${head.length}" class="empty">${safe(empty)}</td></tr>`;
   return `<table><thead><tr>${th}</tr></thead><tbody>${body}</tbody>${foot ? `<tfoot>${foot}</tfoot>` : ''}</table>${more ? `<div class="more">${safe(more)}</div>` : ''}`;
 }
+// No celular cada linha de tabela vira um cartão; cada célula mostra o nome da coluna (data-label).
+function rotularTabelas(root = document) {
+  for (const t of root.querySelectorAll('.table-wrap table')) {
+    const nomes = [...t.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    for (const tr of t.querySelectorAll('tbody tr, tfoot tr')) {
+      let col = 0;
+      for (const td of tr.children) {
+        // Célula que ocupa várias colunas (ex.: "Total" no rodapé) leva o nome da primeira delas.
+        if (!td.classList.contains('empty') && !td.hasAttribute('data-label')) td.setAttribute('data-label', td.colSpan > 1 && col === 0 ? '' : (nomes[col] || ''));
+        col += td.colSpan || 1;
+      }
+    }
+  }
+}
 const toneOf = v => v < -0.004 ? 'neg' : v > 0.004 ? 'pos' : '';
 const kpi = (label, value, { tone = '', hint = '' } = {}) =>
   `<div class="kpi ${tone}"><span class="kpi-label">${safe(label)}</span><strong class="kpi-value">${safe(value)}</strong>${hint ? `<span class="kpi-hint">${safe(hint)}</span>` : ''}</div>`;
@@ -1026,6 +1040,11 @@ function bindUI() {
     const { error } = await db.auth.signOut();
     if (error) { await db.auth.signOut({ scope: 'local' }); leave(); }
   });
+
+  // Rótulos das tabelas para o modo cartão do celular: toda vez que uma tabela é redesenhada.
+  // Só observa troca de conteúdo (não atributos), então colocar os rótulos não dispara de novo.
+  const mainEl = document.querySelector('main');
+  new MutationObserver(() => rotularTabelas(mainEl)).observe(mainEl, { childList: true, subtree: true });
 
   // Navegação
   document.addEventListener('click', e => {
