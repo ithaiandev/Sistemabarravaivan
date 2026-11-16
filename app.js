@@ -475,7 +475,10 @@ function renderDashboard({ ym, hoje }) {
       ['Funcionários', m.folha],
       [m.resultado >= 0 ? 'Sobra (lucro líquido)' : 'Prejuízo', Math.abs(m.resultado)],
     ];
-    $('ondeVai').innerHTML = hBars(fatias.map(([label, v]) => ({ label, value: v, sub: `${pct(parte(v))} · ${money(parte(v))} de cada R$ 100` })))
+    $('ondeVai').innerHTML = hBars(fatias.map(([label, v]) => ({ label, value: v, sub: pct(parte(v)) })))
+      + `<p class="chart-note">${m.resultado >= 0
+        ? `Leia assim: ${pct(parte(m.resultado))} de lucro líquido quer dizer que sobram ${money(parte(m.resultado))} de cada R$ 100,00 vendidos.`
+        : `Prejuízo: para cada R$ 100,00 vendidos, faltaram ${money(parte(-m.resultado))} para pagar tudo.`}</p>`
       + (m.entradas ? `<p class="chart-note">Inclui ${money(m.entradas)} de entradas manuais no lucro líquido.</p>` : '')
       + (data.produtos.some(p => p.ativo !== false && n(p.custo) === 0 && n(p.preco) > 0) ? '<p class="chart-note">Há produtos com custo R$ 0,00: o custo real é maior e o lucro, menor. Preencha o custo em Cardápio e custos.</p>' : '');
   } else $('ondeVai').innerHTML = '<p class="empty-box">Sem vendas no mês.</p>';
@@ -691,6 +694,125 @@ async function exportCsv(kind, btn) {
   const list = (soMes ? rows.filter(r => inMonth(r[cfg.date], ym)) : rows).map(cfg.map || (r => r));
   if (!list.length) { toast('Nada para exportar nesse filtro.', 'warn'); return; }
   csv(list, cfg.cols, `${kind}${soMes ? '-' + ym : ''}.csv`);
+}
+
+// ---------------- Cópia de segurança completa ----------------
+// Um arquivo .json com todos os registros, no formato do banco, para poder restaurar.
+// Ordem importa: quem é referenciado vem antes (produto antes da venda, despesa antes do imposto pago).
+const BACKUP_TABLES = [
+  ['produtos', ['id', 'nome', 'categoria', 'custo', 'preco', 'estoque', 'ativo', 'controla_estoque', 'created_at']],
+  ['funcionarios', ['id', 'nome', 'cargo', 'salario', 'valor_diario', 'admissao', 'created_at']],
+  ['movimentos', ['id', 'descricao', 'tipo', 'categoria', 'valor', 'data', 'created_at']],
+  // total e custo_total ficam de fora: o banco calcula sozinho.
+  ['vendas', ['id', 'data', 'pagamento', 'quantidade', 'produto_id', 'produto_nome', 'preco_unitario', 'custo_unitario', 'estoque_baixado', 'created_at']],
+  ['pagamentos_funcionarios', ['id', 'funcionario_id', 'funcionario_nome', 'tipo', 'valor', 'data', 'observacao', 'created_at']],
+  ['impostos', ['id', 'descricao', 'competencia', 'vencimento', 'valor', 'pago', 'data_pagamento', 'movimento_id', 'created_at']],
+  // Contagem de pratos antiga: a aba saiu, mas os registros continuam no banco e entram na cópia.
+  ['pratos_contagem', ['id', 'nome', 'categoria', 'ativo', 'created_at']],
+  ['contagens_pratos', ['id', 'prato_id', 'prato_nome', 'quantidade', 'data', 'created_at']],
+];
+const BACKUP_APP = 'barraca-do-ivan';
+const BACKUP_MAX_BYTES = 50 * 1024 * 1024;
+const pick = (row, cols) => Object.fromEntries(cols.filter(c => row[c] !== undefined).map(c => [c, row[c]]));
+
+function baixarArquivo(content, type, name) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+// Busca uma tabela inteira, sem o limite de 12 meses da tela. null = tabela não existe no banco.
+async function fetchTableAll(table) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: rows, error } = await db.from(table).select('*').order('id', { ascending: true }).range(from, from + 999);
+    if (error) { if (isMissingTable(error)) return null; throw error; }
+    out.push(...rows);
+    if (rows.length < 1000) return out;
+  }
+}
+function mostrarUltimaCopia() {
+  const ult = store.get('ultimaCopia', null);
+  $('ultimaCopia').textContent = ult ? `Última cópia baixada neste aparelho: ${fmtDate(ult.slice(0, 10))}.` : 'Nenhuma cópia baixada neste aparelho ainda.';
+}
+async function baixarCopia(btn) {
+  if (working) { toast('Aguarde a operação anterior terminar.', 'warn'); return; }
+  working = true; btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = 'Preparando…';
+  try {
+    const tabelas = {}, contagem = [];
+    for (const [table, cols] of BACKUP_TABLES) {
+      const rows = await fetchTableAll(table);
+      if (rows === null) continue;
+      tabelas[table] = rows.map(r => pick(r, cols));
+      contagem.push(rows.length);
+    }
+    const copia = { app: BACKUP_APP, versao: 1, gerado_em: new Date().toISOString(), tabelas };
+    baixarArquivo(JSON.stringify(copia), 'application/json', `barraca-copia-${today()}.json`);
+    store.set('ultimaCopia', today());
+    mostrarUltimaCopia();
+    toast(`Cópia baixada: ${num(contagem.reduce((a, b) => a + b, 0))} registros. Guarde o arquivo no Google Drive ou OneDrive.`);
+  } catch (e) { fail(e); }
+  finally { working = false; btn.disabled = false; btn.textContent = textoOriginal; }
+}
+// Confere o arquivo antes de mandar qualquer coisa para o banco.
+function lerCopia(texto) {
+  let copia;
+  try { copia = JSON.parse(texto); } catch { throw Error('Este arquivo não é uma cópia do sistema (formato inválido).'); }
+  if (!copia || copia.app !== BACKUP_APP || typeof copia.tabelas !== 'object' || !copia.tabelas) throw Error('Este arquivo não é uma cópia da Barraca do Ivan.');
+  if (copia.versao !== 1) throw Error('Esta cópia é de uma versão do sistema que este aparelho não conhece. Atualize a página.');
+  const tabelas = {};
+  for (const [table, cols] of BACKUP_TABLES) {
+    const rows = copia.tabelas[table];
+    if (rows === undefined) continue;
+    if (!Array.isArray(rows)) throw Error(`Cópia danificada (${table}).`);
+    // Só colunas conhecidas e com id: user_id nunca vem do arquivo, o banco usa o usuário logado.
+    tabelas[table] = rows.filter(r => r && typeof r === 'object' && typeof r.id === 'string').map(r => pick(r, cols));
+  }
+  return { tabelas, gerado: String(copia.gerado_em || '') };
+}
+async function restaurarCopia(file) {
+  if (working) { toast('Aguarde a operação anterior terminar.', 'warn'); return; }
+  if (file.size > BACKUP_MAX_BYTES) { toast('Arquivo grande demais para ser uma cópia do sistema.', 'error'); return; }
+  let copia;
+  try { copia = lerCopia(await file.text()); } catch (e) { fail(e); return; }
+  const total = Object.values(copia.tabelas).reduce((a, r) => a + r.length, 0);
+  if (!total) { toast('A cópia está vazia.', 'warn'); return; }
+  const quando = /^\d{4}-\d{2}-\d{2}/.test(copia.gerado) ? fmtDate(copia.gerado.slice(0, 10)) : 'data desconhecida';
+  // Restaurar numa conta que já tem dados traz de volta o que foi cancelado ou excluído depois da cópia.
+  const temDados = loaded && ['produtos', 'vendas', 'movimentos'].some(k => data[k].length);
+  const aviso = temDados
+    ? `\n\nATENÇÃO: o sistema já tem registros. Vendas canceladas, despesas e pagamentos excluídos DEPOIS de ${quando} vão voltar a aparecer. Use restaurar só quando dados sumiram de verdade.`
+    : '';
+  if (!await confirmar('Restaurar cópia', `Cópia de ${quando} com ${num(total)} registros.\nSó entra o que estiver faltando no sistema: nada é apagado nem alterado, e o que já existe não é duplicado.${aviso}`, temDados ? 'Restaurar mesmo assim' : 'Restaurar', temDados)) return;
+  working = true;
+  const btn = $('btnRestaurar');
+  btn.disabled = true;
+  const resumo = [], erros = [];
+  try {
+    for (const [table] of BACKUP_TABLES) {
+      const rows = copia.tabelas[table];
+      if (!rows?.length) continue;
+      btn.textContent = `Restaurando ${table}…`;
+      let novos = 0;
+      for (let i = 0; i < rows.length; i += 500) {
+        // ignoreDuplicates: registro com o mesmo id já existe → fica como está.
+        const { data: ins, error } = await db.from(table).upsert(rows.slice(i, i + 500), { onConflict: 'id', ignoreDuplicates: true }).select('id');
+        if (error) {
+          if (isMissingTable(error)) { erros.push(`${table}: tabela não existe neste banco (rode os arquivos .sql primeiro)`); break; }
+          erros.push(`${table}: ${friendly(error)}`); break;
+        }
+        novos += ins?.length || 0;
+      }
+      if (novos) resumo.push(`${num(novos)} em ${table}`);
+    }
+  } catch (e) { erros.push(friendly(e)); }
+  finally { working = false; btn.disabled = false; btn.textContent = 'Restaurar cópia…'; }
+  const msg = resumo.length ? `Restaurado: ${resumo.join(', ')}.` : 'Nada para restaurar: tudo da cópia já estava no sistema.';
+  if (erros.length) toast(`${msg} Problemas: ${erros.join('; ')}`, 'error'); else toast(msg);
+  void load();
 }
 
 // ---------------- Ações das tabelas ----------------
@@ -929,6 +1051,11 @@ function bindUI() {
   document.querySelectorAll('[data-default="today"]').forEach(el => { el.value = today(); });
   document.querySelectorAll('[data-default="month"]').forEach(el => { el.value = today().slice(0, 7); });
   $('refreshBtn').addEventListener('click', () => load());
+  // Cópia de segurança
+  mostrarUltimaCopia();
+  $('btnBaixarCopia').addEventListener('click', e => baixarCopia(e.currentTarget));
+  $('btnRestaurar').addEventListener('click', () => { if (working) toast('Aguarde a operação anterior terminar.', 'warn'); else $('arquivoCopia').click(); });
+  $('arquivoCopia').addEventListener('change', e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void restaurarCopia(f); });
   // Filtros redesenham só a própria tela.
   const only = fn => () => { try { fn({ ym: validYm($('periodo').value) || today().slice(0, 7), hoje: today() }); } catch (e) { console.error(e); } };
   for (const id of ['filtroDia', 'filtroCategoria', 'filtroPagamento']) $(id).addEventListener('change', only(renderVendas));
@@ -973,7 +1100,16 @@ function bindUI() {
     const faltam = cardapioFaltando();
     if (!faltam.length) { toast('O cardápio já está todo cadastrado.'); return; }
     if (!await confirmar('Cadastrar cardápio', `Serão cadastrados ${faltam.length} itens com os preços do cardápio, custo R$ 0,00 e sem controle de estoque. Itens com o mesmo nome já cadastrados não são repetidos. Depois, preencha o custo de cada um para ver o lucro certo.`, 'Cadastrar')) return;
-    await run(e.currentTarget, () => insert('produtos', faltam.map(c => ({ nome: c.nome, categoria: c.categoria, preco: c.preco, custo: 0, estoque: 0, controla_estoque: false }))), `${faltam.length} itens do cardápio cadastrados.`);
+    let qtd = 0;
+    const ok = await run(e.currentTarget, async () => {
+      // Confere de novo no banco logo antes de gravar: outro aparelho pode ter cadastrado enquanto
+      // a confirmação estava aberta, e o banco aceita nomes repetidos.
+      await fetchKeys(['produtos'], windowStart || windowFor(), sessionId);
+      const agora = cardapioFaltando();
+      qtd = agora.length;
+      if (qtd) await insert('produtos', agora.map(c => ({ nome: c.nome, categoria: c.categoria, preco: c.preco, custo: 0, estoque: 0, controla_estoque: false })));
+    });
+    if (ok) toast(qtd ? `${qtd} itens do cardápio cadastrados.` : 'O cardápio já estava todo cadastrado em outro aparelho.');
   });
 
   // Custo estimado por porcentagem do preço, só para produtos que estão com custo zero.
@@ -987,9 +1123,15 @@ function bindUI() {
     try { pc = amount(r.pct, { min: 1, max: 95, label: 'Porcentagem' }); } catch (err) { fail(err); return; }
     let feitos = 0;
     const ok = await run(e.currentTarget, async () => {
-      for (const p of alvo) { await update('produtos', p.id, { custo: round2(n(p.preco) * pc / 100) }); feitos++; }
-    }, `Custo estimado em ${num(pc)}% do preço aplicado a ${alvo.length} produto(s).`);
-    if (!ok && feitos) { toast(`${feitos} de ${alvo.length} produto(s) foram atualizados antes do erro.`, 'warn'); render(); }
+      for (const p0 of alvo) {
+        // Pula quem ganhou custo (em outro aparelho) enquanto a janela estava aberta.
+        const p = produtoById(p0.id);
+        if (!p || n(p.custo) !== 0) continue;
+        await update('produtos', p.id, { custo: round2(n(p.preco) * pc / 100) }); feitos++;
+      }
+    });
+    if (ok) toast(`Custo estimado em ${num(pc)}% do preço aplicado a ${feitos} produto(s).`);
+    else if (feitos) { toast(`${feitos} de ${alvo.length} produto(s) foram atualizados antes do erro.`, 'warn'); render(); }
   });
 
   // Despesas e entradas

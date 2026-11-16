@@ -9,11 +9,11 @@
 <meta name="theme-color" content="#0f3b3f">
 <title>Barraca do Ivan | Gestão</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b7a6f'/%3E%3Ctext x='16' y='21' font-family='Arial' font-size='13' font-weight='700' fill='white' text-anchor='middle'%3EBI%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=20261116c">
+<link rel="stylesheet" href="style.css?v=20261116f">
 <script defer src="boot.js"></script>
 <script defer src="config.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous"></script>
-<script defer src="app.js?v=20261116c"></script>
+<script defer src="app.js?v=20261116f"></script>
 </head>
 <body>
 
@@ -267,6 +267,17 @@
             <button type="button" class="btn btn-soft" data-csv="produtos">Produtos</button>
           </div>
           <p class="muted small">Os arquivos abrem direto no Excel ou no Google Planilhas, com vírgula decimal.</p>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Cópia de segurança</h3></div>
+          <p class="small">Baixe uma vez por semana e guarde no Google Drive ou OneDrive. Se o banco tiver algum problema, é com este arquivo que tudo volta para o sistema.</p>
+          <div class="btn-row wrap">
+            <button type="button" id="btnBaixarCopia" class="btn btn-primary">Baixar cópia completa</button>
+            <button type="button" id="btnRestaurar" class="btn btn-soft">Restaurar cópia…</button>
+            <input type="file" id="arquivoCopia" accept=".json,application/json" hidden>
+          </div>
+          <p id="ultimaCopia" class="muted small"></p>
+          <p class="muted small">Restaurar só acrescenta o que estiver faltando: não apaga, não altera e não duplica nada. As planilhas acima são para ler no Excel; para restaurar, use sempre este arquivo .json.</p>
         </div>
       </section>
     </main>
